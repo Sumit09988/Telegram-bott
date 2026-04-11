@@ -6,7 +6,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from config import *
 from database import *
 
-# 🎛️ MENU
 keyboard = [
     ["🔍 Lookup via Chat"],
     ["🎁 Refer & Earn", "📊 My Credits"]
@@ -41,9 +40,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ref and ref != user_id:
         add_credit(ref)
 
-    await update.message.reply_text("🔥 Welcome to Premium Lookup Bot", reply_markup=markup)
+    await update.message.reply_text("🔥 Welcome Premium Bot", reply_markup=markup)
 
-# 🔄 LIMIT SYSTEM
+# 🔄 LIMIT
 def can_search(user):
     user_id, credits, daily_used, last_reset, _ = user
     today = str(date.today())
@@ -71,9 +70,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg = " ".join(context.args)
-    users = get_all_users()
-
-    for u in users:
+    for u in get_all_users():
         try:
             await context.bot.send_message(u[0], msg)
         except:
@@ -93,11 +90,11 @@ async def addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (amt, uid))
         conn.commit()
 
-        await update.message.reply_text(f"✅ Added {amt} credits")
+        await update.message.reply_text(f"✅ {amt} credits added")
     except:
         await update.message.reply_text("Usage: /addcredits user_id amount")
 
-# 🧠 MAIN HANDLE
+# 🧠 MAIN
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -109,7 +106,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(user_id)
     text = update.message.text
 
-    # 📊 Credits
+    # 📊
     if text == "📊 My Credits":
         await update.message.reply_text(
             f"📊 <b>Your Stats</b>\n\n💰 Credits: {user[1]}\n📅 Used: {user[2]}/5",
@@ -117,32 +114,33 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # 🎁 Refer
+    # 🎁
     if text == "🎁 Refer & Earn":
         link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
         await update.message.reply_text(
-            f"🎁 <b>Refer & Earn</b>\n\nInvite Link:\n{link}",
+            f"🎁 <b>Refer & Earn</b>\n\n{link}",
             parse_mode="HTML"
         )
         return
 
-    # 🔍 Lookup Button
+    # 🔍 Button
     if text == "🔍 Lookup via Chat":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("👉 Open Private", url=f"https://t.me/{BOT_USERNAME}")]
         ])
-        await update.message.reply_text(
-            "📩 Private me open karo & user ka message forward/reply karo",
-            reply_markup=kb
-        )
+        await update.message.reply_text("📩 Private me open karo & reply/forward karo", reply_markup=kb)
         return
 
-    # 🎯 QUERY DETECT
+    # 🎯 QUERY
     if update.message.reply_to_message:
         query = str(update.message.reply_to_message.from_user.id)
 
     elif update.message.forward_from:
         query = str(update.message.forward_from.id)
+
+    elif update.message.forward_sender_name:
+        await update.message.reply_text("❌ Forward privacy ON hai → reply use karo")
+        return
 
     elif text.startswith("@"):
         query = text.replace("@", "")
@@ -151,28 +149,35 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = text
 
     else:
-        await update.message.reply_text(
-            "❌ Use:\n\n👉 @username\n👉 userID\n👉 reply/forward"
-        )
+        await update.message.reply_text("❌ Use: @username / userID / reply")
         return
 
     # 🔐 LIMIT
     if not can_search(user):
-        await update.message.reply_text("❌ Limit over. Refer to earn.")
+        await update.message.reply_text("❌ Limit over. Refer more")
         return
 
-    # 🌐 API CALL
+    # 🌐 API CALL SAFE
     url = f"http://eris-osint.vercel.app/info?key={API_KEY}&id={query}"
 
     try:
-        res = requests.get(url)
+        res = requests.get(url, timeout=10)
+
+        if res.status_code != 200:
+            await update.message.reply_text("⚠️ API Down")
+            return
+
         data = res.json()
 
-        if data.get("success") == False:
+        if not data.get("success"):
             await update.message.reply_text("❌ Data not found")
             return
 
-        result = json.loads(data.get("result", "{}"))
+        try:
+            result = json.loads(data.get("result", "{}"))
+        except:
+            await update.message.reply_text("⚠️ Data parse error")
+            return
 
         msg = f"""
 <b>🔍 RESULT FOUND</b>
@@ -189,6 +194,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(msg, parse_mode="HTML")
 
+    except requests.exceptions.Timeout:
+        await update.message.reply_text("⏳ API Timeout")
     except:
         await update.message.reply_text("⚠️ API Error")
 
