@@ -1,5 +1,6 @@
 import requests
 import json
+import time
 from datetime import date
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
@@ -41,9 +42,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ref and ref != user_id:
         add_credit(ref)
 
-    await update.message.reply_text("🔥 Welcome to Premium Bot", reply_markup=markup)
+    await update.message.reply_text("🔥 Premium Lookup Bot Ready", reply_markup=markup)
 
-# LIMIT SYSTEM
+# LIMIT
 def can_search(user):
     user_id, credits, daily_used, last_reset, _ = user
     today = str(date.today())
@@ -65,6 +66,23 @@ def can_search(user):
 
     return False
 
+# API FUNCTION WITH RETRY 🔥
+def fetch_data(url):
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+    }
+
+    for _ in range(3):  # 3 retry
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            if res.status_code == 200:
+                return res.json()
+        except:
+            time.sleep(1)
+
+    return None
+
 # BROADCAST
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -80,7 +98,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("✅ Broadcast sent")
 
-# ADD CREDITS
+# ADD CREDIT
 async def addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -96,7 +114,7 @@ async def addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("Usage: /addcredits user_id amount")
 
-# MAIN HANDLE
+# MAIN
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -108,7 +126,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(user_id)
     text = update.message.text
 
-    # MY CREDITS
+    # STATS
     if text == "📊 My Credits":
         await update.message.reply_text(
             f"📊 <b>Your Stats</b>\n\n💰 Credits: {user[1]}\n📅 Used: {user[2]}/5",
@@ -148,18 +166,16 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     elif text.startswith("@"):
-        query = text   # 🔥 IMPORTANT (username with @)
+        query = text
 
     elif text.isdigit():
         query = text
 
     else:
-        await update.message.reply_text(
-            "❌ Use:\n\n👉 @username\n👉 userID\n👉 reply/forward"
-        )
+        await update.message.reply_text("❌ Use: @username / userID / reply")
         return
 
-    # LIMIT CHECK
+    # LIMIT
     if not can_search(user):
         await update.message.reply_text("❌ Limit over. Refer more")
         return
@@ -167,21 +183,33 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # API CALL
     url = f"http://eris-osint.vercel.app/info?key={API_KEY}&id={query}"
 
-    try:
-        res = requests.get(url, timeout=10)
-        data = res.json()
+    data = fetch_data(url)
 
+    if not data:
+        await update.message.reply_text("⚠️ API not responding")
+        return
+
+    result_raw = data.get("result")
+
+    if not result_raw:
+        await update.message.reply_text("❌ Data not found")
+        return
+
+    # SAFE PARSE
+    if isinstance(result_raw, dict):
+        result = result_raw
+    else:
         try:
-            result = json.loads(data.get("result", "{}"))
+            result = json.loads(result_raw)
         except:
             await update.message.reply_text("⚠️ Data parse error")
             return
 
-        if not result or not result.get("number"):
-            await update.message.reply_text("❌ Data not found")
-            return
+    if not result.get("number"):
+        await update.message.reply_text("❌ Data not found")
+        return
 
-        msg = f"""
+    msg = f"""
 <b>🔍 RESULT FOUND</b>
 
 ━━━━━━━━━━━━━━
@@ -194,10 +222,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 👨‍💻 <b>DEVELOPER:</b> @T4HKR
 """
 
-        await update.message.reply_text(msg, parse_mode="HTML")
-
-    except:
-        await update.message.reply_text("⚠️ API Error")
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 # RUN
 app = ApplicationBuilder().token(BOT_TOKEN).build()
