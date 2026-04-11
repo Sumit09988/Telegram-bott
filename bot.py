@@ -1,17 +1,19 @@
 import requests
+import json
 from datetime import date
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from config import *
 from database import *
 
+# 🎛️ MENU
 keyboard = [
     ["🔍 Lookup via Chat"],
-    ["🎁 Refer & Earn"],
-    ["📊 My Credits"]
+    ["🎁 Refer & Earn", "📊 My Credits"]
 ]
 markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+# 🔐 CHANNEL CHECK
 async def check_join(user_id, bot):
     try:
         member = await bot.get_chat_member(CHANNEL, user_id)
@@ -19,6 +21,7 @@ async def check_join(user_id, bot):
     except:
         return False
 
+# 🚀 START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -38,8 +41,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ref and ref != user_id:
         add_credit(ref)
 
-    await update.message.reply_text("Welcome 🚀", reply_markup=markup)
+    await update.message.reply_text("🔥 Welcome to Premium Lookup Bot", reply_markup=markup)
 
+# 🔄 LIMIT SYSTEM
 def can_search(user):
     user_id, credits, daily_used, last_reset, _ = user
     today = str(date.today())
@@ -61,13 +65,14 @@ def can_search(user):
 
     return False
 
+# 📢 BROADCAST
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
     msg = " ".join(context.args)
-
     users = get_all_users()
+
     for u in users:
         try:
             await context.bot.send_message(u[0], msg)
@@ -76,21 +81,23 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("✅ Broadcast sent")
 
+# 💰 ADD CREDITS
 async def addcredits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
     try:
-        user_id = int(context.args[0])
-        amount = int(context.args[1])
+        uid = int(context.args[0])
+        amt = int(context.args[1])
 
-        cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (amount, user_id))
+        cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (amt, uid))
         conn.commit()
 
-        await update.message.reply_text(f"✅ {amount} credits added")
+        await update.message.reply_text(f"✅ Added {amt} credits")
     except:
         await update.message.reply_text("Usage: /addcredits user_id amount")
 
+# 🧠 MAIN HANDLE
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
@@ -100,40 +107,92 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     add_user(user_id)
     user = get_user(user_id)
-
     text = update.message.text
 
+    # 📊 Credits
     if text == "📊 My Credits":
-        await update.message.reply_text(f"💰 Credits: {user[1]}\n📅 Used: {user[2]}/5")
+        await update.message.reply_text(
+            f"📊 <b>Your Stats</b>\n\n💰 Credits: {user[1]}\n📅 Used: {user[2]}/5",
+            parse_mode="HTML"
+        )
         return
 
+    # 🎁 Refer
     if text == "🎁 Refer & Earn":
         link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
-        await update.message.reply_text(f"Invite link:\n{link}")
+        await update.message.reply_text(
+            f"🎁 <b>Refer & Earn</b>\n\nInvite Link:\n{link}",
+            parse_mode="HTML"
+        )
         return
 
+    # 🔍 Lookup Button
     if text == "🔍 Lookup via Chat":
-        await update.message.reply_text("Send username or reply in group")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("👉 Open Private", url=f"https://t.me/{BOT_USERNAME}")]
+        ])
+        await update.message.reply_text(
+            "📩 Private me open karo & user ka message forward/reply karo",
+            reply_markup=kb
+        )
         return
 
+    # 🎯 QUERY DETECT
     if update.message.reply_to_message:
         query = str(update.message.reply_to_message.from_user.id)
-    else:
+
+    elif update.message.forward_from:
+        query = str(update.message.forward_from.id)
+
+    elif text.startswith("@"):
         query = text.replace("@", "")
 
-    if can_search(user):
-        url = f"http://eris-osint.vercel.app/info?key={API_KEY}&id={query}"
-        try:
-            res = requests.get(url)
-            data = res.json()
-            await update.message.reply_text(
-                f"🔍 Result:\n{data}\n\n━━━━━━━━━━━━━━\n👨‍💻 DEVELOPER: @T4HKR"
-            )
-        except:
-            await update.message.reply_text("⚠️ API Error")
-    else:
-        await update.message.reply_text("❌ Limit over. Refer more")
+    elif text.isdigit():
+        query = text
 
+    else:
+        await update.message.reply_text(
+            "❌ Use:\n\n👉 @username\n👉 userID\n👉 reply/forward"
+        )
+        return
+
+    # 🔐 LIMIT
+    if not can_search(user):
+        await update.message.reply_text("❌ Limit over. Refer to earn.")
+        return
+
+    # 🌐 API CALL
+    url = f"http://eris-osint.vercel.app/info?key={API_KEY}&id={query}"
+
+    try:
+        res = requests.get(url)
+        data = res.json()
+
+        if data.get("success") == False:
+            await update.message.reply_text("❌ Data not found")
+            return
+
+        result = json.loads(data.get("result", "{}"))
+
+        msg = f"""
+<b>🔍 RESULT FOUND</b>
+
+━━━━━━━━━━━━━━
+
+🌍 <b>Country:</b> {result.get('country')}
+📞 <b>Number:</b> <code>{result.get('number')}</code>
+🆔 <b>User ID:</b> <code>{result.get('tg_id')}</code>
+
+━━━━━━━━━━━━━━
+👨‍💻 <b>DEVELOPER:</b> @T4HKR
+"""
+
+        await update.message.reply_text(msg, parse_mode="HTML")
+
+    except:
+        await update.message.reply_text("⚠️ API Error")
+
+# 🚀 RUN
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
