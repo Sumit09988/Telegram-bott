@@ -7,12 +7,18 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from config import *
 from database import *
 
-# MENU
-keyboard = [
+# USER MENU
+user_keyboard = [
     ["🔍 Lookup via Chat"],
     ["🎁 Refer & Earn", "📊 My Credits"]
 ]
-markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+# ADMIN MENU
+admin_keyboard = [
+    ["👥 Total Users"],
+    ["💰 Add Credits"],
+    ["📢 Broadcast"]
+]
 
 # CHANNEL CHECK
 async def check_join(user_id, bot):
@@ -22,7 +28,7 @@ async def check_join(user_id, bot):
     except:
         return False
 
-# CHECK USER EXISTS
+# USER EXISTS
 def user_exists(user_id):
     cursor.execute("SELECT 1 FROM users WHERE user_id=?", (user_id,))
     return cursor.fetchone() is not None
@@ -46,22 +52,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     add_user(user_id, ref)
 
-    # ✅ refer reward only new user
     if is_new and ref and ref != user_id:
         add_credit(ref)
 
-    # 🔔 admin alert
-    try:
-        await context.bot.send_message(
-            ADMIN_ID,
-            f"🆕 New User Started Bot\n\n👤 ID: {user_id}"
-        )
-    except:
-        pass
+    # admin alert
+    if is_new:
+        try:
+            await context.bot.send_message(ADMIN_ID, f"🆕 New User\nID: {user_id}")
+        except:
+            pass
 
-    await update.message.reply_text("🔥 Welcome Premium Bot", reply_markup=markup)
+    # menu
+    if user_id == ADMIN_ID:
+        keyboard = ReplyKeyboardMarkup(user_keyboard + admin_keyboard, resize_keyboard=True)
+        await update.message.reply_text("🔥 Admin Panel", reply_markup=keyboard)
+    else:
+        keyboard = ReplyKeyboardMarkup(user_keyboard, resize_keyboard=True)
+        await update.message.reply_text("🔥 Premium Bot Ready", reply_markup=keyboard)
 
-# LIMIT SYSTEM
+# LIMIT
 def can_search(user):
     user_id, credits, daily_used, last_reset, _ = user
     today = str(date.today())
@@ -95,36 +104,8 @@ def fetch_data(url):
             time.sleep(1)
     return None
 
-# /CHECK COMMAND
-async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user = get_user(user_id)
-
-    if not can_search(user):
-        await update.message.reply_text("❌ Limit over")
-        return
-
-    # QUERY DETECT
-    if update.message.reply_to_message:
-        query = str(update.message.reply_to_message.from_user.id)
-
-    elif context.args:
-        text = context.args[0]
-
-        if text.startswith("@"):
-            query = text
-        elif text.isdigit():
-            query = text
-        else:
-            await update.message.reply_text("❌ Invalid input")
-            return
-
-    else:
-        await update.message.reply_text(
-            "❌ Use:\n\n👉 /check @username\n👉 /check userID\n👉 reply + /check"
-        )
-        return
-
+# RESULT
+async def send_result(update, query):
     url = f"http://eris-osint.vercel.app/info?key={API_KEY}&id={query}"
     data = fetch_data(url)
 
@@ -135,10 +116,7 @@ async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result_raw = data.get("result")
 
     if not result_raw:
-        await update.message.reply_text(
-            f"<b>❌ DATA NOT FOUND</b>\n\n🆔 <code>{query}</code>",
-            parse_mode="HTML"
-        )
+        await update.message.reply_text(f"<b>❌ DATA NOT FOUND</b>\n\n🆔 <code>{query}</code>", parse_mode="HTML")
         return
 
     try:
@@ -148,10 +126,7 @@ async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not result.get("number"):
-        await update.message.reply_text(
-            f"<b>❌ DATA NOT FOUND</b>\n\n🆔 <code>{query}</code>",
-            parse_mode="HTML"
-        )
+        await update.message.reply_text(f"<b>❌ DATA NOT FOUND</b>\n\n🆔 <code>{query}</code>", parse_mode="HTML")
         return
 
     msg = f"""
@@ -166,15 +141,38 @@ async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━
 👨‍💻 <b>DEVELOPER:</b> @T4HKR
 """
-
     await update.message.reply_text(msg, parse_mode="HTML")
 
-# HANDLE (PRIVATE ONLY)
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type != "private":
+# /CHECK (GROUP + PRIVATE)
+async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user(update.effective_user.id)
+
+    if not can_search(user):
+        await update.message.reply_text("❌ Limit over")
         return
 
+    if update.message.reply_to_message:
+        query = str(update.message.reply_to_message.from_user.id)
+
+    elif context.args:
+        text = context.args[0]
+        if text.startswith("@") or text.isdigit():
+            query = text
+        else:
+            await update.message.reply_text("❌ Invalid input")
+            return
+    else:
+        await update.message.reply_text("❌ Use /check @username or reply")
+        return
+
+    await send_result(update, query)
+
+# HANDLE
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     user_id = update.effective_user.id
+    chat_type = update.effective_chat.type
+    text = update.message.text
 
     if not await check_join(user_id, context.bot):
         await update.message.reply_text(f"❌ Join channel first: {CHANNEL}")
@@ -182,26 +180,91 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     add_user(user_id)
     user = get_user(user_id)
-    text = update.message.text
+
+    # ================= ADMIN BUTTONS =================
+
+    if text == "👥 Total Users" and user_id == ADMIN_ID:
+        cursor.execute("SELECT COUNT(*) FROM users")
+        count = cursor.fetchone()[0]
+        await update.message.reply_text(f"👥 Total Users: {count}")
+        return
+
+    if text == "💰 Add Credits" and user_id == ADMIN_ID:
+        context.user_data["add"] = True
+        await update.message.reply_text("Send: userID amount")
+        return
+
+    if context.user_data.get("add") and user_id == ADMIN_ID:
+        try:
+            uid, amt = text.split()
+            cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (int(amt), int(uid)))
+            conn.commit()
+            await update.message.reply_text("✅ Credits Added")
+        except:
+            await update.message.reply_text("❌ Format wrong")
+        context.user_data["add"] = False
+        return
+
+    if text == "📢 Broadcast" and user_id == ADMIN_ID:
+        context.user_data["bc"] = True
+        await update.message.reply_text("Send broadcast message")
+        return
+
+    if context.user_data.get("bc") and user_id == ADMIN_ID:
+        for u in get_all_users():
+            try:
+                await context.bot.send_message(u[0], text)
+            except:
+                pass
+        await update.message.reply_text("✅ Broadcast Sent")
+        context.user_data["bc"] = False
+        return
+
+    # ================= USER BUTTONS =================
 
     if text == "📊 My Credits":
         await update.message.reply_text(
             f"""📊 <b>Your Stats</b>
 
-🎯 Daily Free Left: {5 - user[2]}
+🎯 Daily Left: {5 - user[2]}
 💰 Credits: {user[1]}""",
             parse_mode="HTML"
         )
+        return
 
-    elif text == "🎁 Refer & Earn":
+    if text == "🎁 Refer & Earn":
         link = f"https://t.me/{BOT_USERNAME}?start={user_id}"
         await update.message.reply_text(link)
+        return
 
-    elif text == "🔍 Lookup via Chat":
+    if text == "🔍 Lookup via Chat":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("👉 Open Private", url=f"https://t.me/{BOT_USERNAME}")]
         ])
-        await update.message.reply_text("📩 Open private & use /check", reply_markup=kb)
+        await update.message.reply_text("📩 Use /check or send username", reply_markup=kb)
+        return
+
+    # ================= GROUP =================
+    if chat_type != "private":
+        return
+
+    # ================= PRIVATE SEARCH =================
+    if text.startswith("@") or text.isdigit():
+        if not can_search(user):
+            await update.message.reply_text("❌ Limit over")
+            return
+        await send_result(update, text)
+        return
+
+    if update.message.reply_to_message:
+        if not can_search(user):
+            await update.message.reply_text("❌ Limit over")
+            return
+        query = str(update.message.reply_to_message.from_user.id)
+        await send_result(update, query)
+        return
+
+    await update.message.reply_text("❌ Use: @username / userID / reply")
 
 # RUN
 app = ApplicationBuilder().token(BOT_TOKEN).build()
