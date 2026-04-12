@@ -10,7 +10,8 @@ from database import *
 # USER MENU
 user_keyboard = [
     ["🔍 Lookup via Chat"],
-    ["🎁 Refer & Earn", "📊 My Credits"]
+    ["🎁 Refer & Earn", "📊 My Credits"],
+    ["❓ Help"]
 ]
 
 # ADMIN MENU
@@ -62,13 +63,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
 
-    # menu
-    if user_id == ADMIN_ID:
+    # MENU FIX
+    if str(user_id) == str(ADMIN_ID):
         keyboard = ReplyKeyboardMarkup(user_keyboard + admin_keyboard, resize_keyboard=True)
-        await update.message.reply_text("🔥 Admin Panel", reply_markup=keyboard)
+        await update.message.reply_text("👑 Admin Panel Ready", reply_markup=keyboard)
     else:
         keyboard = ReplyKeyboardMarkup(user_keyboard, resize_keyboard=True)
-        await update.message.reply_text("🔥 Premium Bot Ready", reply_markup=keyboard)
+        await update.message.reply_text("🔥 Bot Ready", reply_markup=keyboard)
 
 # LIMIT
 def can_search(user):
@@ -92,7 +93,7 @@ def can_search(user):
 
     return False
 
-# API FETCH
+# API
 def fetch_data(url):
     headers = {"User-Agent": "Mozilla/5.0"}
     for _ in range(3):
@@ -116,7 +117,7 @@ async def send_result(update, query):
     result_raw = data.get("result")
 
     if not result_raw:
-        await update.message.reply_text(f"<b>❌ DATA NOT FOUND</b>\n\n🆔 <code>{query}</code>", parse_mode="HTML")
+        await update.message.reply_text(f"❌ DATA NOT FOUND\n\nID: {query}")
         return
 
     try:
@@ -126,24 +127,21 @@ async def send_result(update, query):
         return
 
     if not result.get("number"):
-        await update.message.reply_text(f"<b>❌ DATA NOT FOUND</b>\n\n🆔 <code>{query}</code>", parse_mode="HTML")
+        await update.message.reply_text(f"❌ DATA NOT FOUND\n\nID: {query}")
         return
 
     msg = f"""
-<b>🔍 RESULT FOUND</b>
+🔍 RESULT FOUND
 
-━━━━━━━━━━━━━━
+🌍 Country: {result.get('country')}
+📞 Number: {result.get('number')}
+🆔 User ID: {result.get('tg_id')}
 
-🌍 <b>Country:</b> {result.get('country')}
-📞 <b>Number:</b> <code>{result.get('number')}</code>
-🆔 <b>User ID:</b> <code>{result.get('tg_id')}</code>
-
-━━━━━━━━━━━━━━
-👨‍💻 <b>DEVELOPER:</b> @T4HKR
+👨‍💻 DEVELOPER: @T4HKR
 """
-    await update.message.reply_text(msg, parse_mode="HTML")
+    await update.message.reply_text(msg)
 
-# /CHECK (GROUP + PRIVATE)
+# /CHECK
 async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(update.effective_user.id)
 
@@ -153,14 +151,8 @@ async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.message.reply_to_message:
         query = str(update.message.reply_to_message.from_user.id)
-
     elif context.args:
-        text = context.args[0]
-        if text.startswith("@") or text.isdigit():
-            query = text
-        else:
-            await update.message.reply_text("❌ Invalid input")
-            return
+        query = context.args[0]
     else:
         await update.message.reply_text("❌ Use /check @username or reply")
         return
@@ -175,61 +167,78 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
     if not await check_join(user_id, context.bot):
-        await update.message.reply_text(f"❌ Join channel first: {CHANNEL}")
+        await update.message.reply_text("❌ Join channel first")
         return
 
     add_user(user_id)
     user = get_user(user_id)
 
-    # ================= ADMIN BUTTONS =================
-
-    if text == "👥 Total Users" and user_id == ADMIN_ID:
-        cursor.execute("SELECT COUNT(*) FROM users")
-        count = cursor.fetchone()[0]
-        await update.message.reply_text(f"👥 Total Users: {count}")
-        return
-
-    if text == "💰 Add Credits" and user_id == ADMIN_ID:
-        context.user_data["add"] = True
-        await update.message.reply_text("Send: userID amount")
-        return
-
-    if context.user_data.get("add") and user_id == ADMIN_ID:
-        try:
-            uid, amt = text.split()
-            cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (int(amt), int(uid)))
-            conn.commit()
-            await update.message.reply_text("✅ Credits Added")
-        except:
-            await update.message.reply_text("❌ Format wrong")
-        context.user_data["add"] = False
-        return
-
-    if text == "📢 Broadcast" and user_id == ADMIN_ID:
-        context.user_data["bc"] = True
-        await update.message.reply_text("Send broadcast message")
-        return
-
-    if context.user_data.get("bc") and user_id == ADMIN_ID:
-        for u in get_all_users():
-            try:
-                await context.bot.send_message(u[0], text)
-            except:
-                pass
-        await update.message.reply_text("✅ Broadcast Sent")
-        context.user_data["bc"] = False
-        return
-
-    # ================= USER BUTTONS =================
-
-    if text == "📊 My Credits":
+    # HELP
+    if text == "❓ Help":
         await update.message.reply_text(
-            f"""📊 <b>Your Stats</b>
+            """📖 HOW TO USE:
 
-🎯 Daily Left: {5 - user[2]}
-💰 Credits: {user[1]}""",
-            parse_mode="HTML"
+🔍 Private:
+@username send karo
+ya userID send karo
+
+👥 Group:
+/check @username
+ya reply + /check
+
+💰 System:
+5 daily free
+refer = 1 credit"""
         )
+        return
+
+    # ADMIN BUTTONS
+    if str(user_id) == str(ADMIN_ID):
+
+        if text == "👥 Total Users":
+            cursor.execute("SELECT COUNT(*) FROM users")
+            count = cursor.fetchone()[0]
+            await update.message.reply_text(f"👥 Total Users: {count}")
+            return
+
+        if text == "💰 Add Credits":
+            context.user_data["add"] = True
+            await update.message.reply_text("Send: userID amount")
+            return
+
+        if context.user_data.get("add"):
+            try:
+                uid, amt = text.split()
+                cursor.execute("UPDATE users SET credits = credits + ? WHERE user_id=?", (int(amt), int(uid)))
+                conn.commit()
+                await update.message.reply_text("✅ Credits Added")
+            except:
+                await update.message.reply_text("❌ Wrong format")
+            context.user_data["add"] = False
+            return
+
+        if text == "📢 Broadcast":
+            context.user_data["bc"] = True
+            await update.message.reply_text("Send message")
+            return
+
+        if context.user_data.get("bc"):
+            for u in get_all_users():
+                try:
+                    await context.bot.send_message(u[0], text)
+                except:
+                    pass
+            await update.message.reply_text("✅ Broadcast Done")
+            context.user_data["bc"] = False
+            return
+
+    # GROUP
+    if chat_type != "private":
+        return
+
+    # USER BUTTONS
+    if text == "📊 My Credits":
+        await update.message.reply_text(f"Credits: {user[1]}\nDaily Left: {5-user[2]}")
         return
 
     if text == "🎁 Refer & Earn":
@@ -238,17 +247,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "🔍 Lookup via Chat":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("👉 Open Private", url=f"https://t.me/{BOT_USERNAME}")]
-        ])
-        await update.message.reply_text("📩 Use /check or send username", reply_markup=kb)
+        await update.message.reply_text("Send username or userID")
         return
 
-    # ================= GROUP =================
-    if chat_type != "private":
-        return
-
-    # ================= PRIVATE SEARCH =================
+    # SEARCH
     if text.startswith("@") or text.isdigit():
         if not can_search(user):
             await update.message.reply_text("❌ Limit over")
@@ -260,11 +262,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not can_search(user):
             await update.message.reply_text("❌ Limit over")
             return
-        query = str(update.message.reply_to_message.from_user.id)
-        await send_result(update, query)
+        await send_result(update, str(update.message.reply_to_message.from_user.id))
         return
 
-    await update.message.reply_text("❌ Use: @username / userID / reply")
+    await update.message.reply_text("❌ Invalid input")
 
 # RUN
 app = ApplicationBuilder().token(BOT_TOKEN).build()
