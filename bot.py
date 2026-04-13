@@ -1,8 +1,14 @@
 import requests
 import json
 from datetime import datetime, date
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import (
+    Update, ReplyKeyboardMarkup, InlineKeyboardMarkup,
+    InlineKeyboardButton
+)
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    ContextTypes, filters
+)
 from config import *
 from database import *
 
@@ -10,7 +16,7 @@ from database import *
 user_keyboard = [
     ["🚀 Lookup Now"],
     ["💰 My Credits", "🎁 Refer & Earn"],
-    ["❓ Help"]
+    ["📊 Stats", "❓ Help"]
 ]
 
 admin_keyboard = [
@@ -57,18 +63,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     add_user(user_id, ref)
 
-    # 🔥 ADMIN ALERT
     if is_new:
         try:
-            await context.bot.send_message(ADMIN_ID, f"🆕 New User Joined\nID: {user_id}")
+            await context.bot.send_message(ADMIN_ID, f"🆕 New User: {user_id}")
         except:
             pass
 
-    # 🎁 REFER SYSTEM
     if is_new and ref and ref != user_id:
         add_credit(ref)
         try:
-            await context.bot.send_message(ref, f"🎉 User {user_id} joined using your referral! +1 credit")
+            await context.bot.send_message(ref, "🎉 Referral joined! +1 Credit")
         except:
             pass
 
@@ -76,14 +80,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now()
 
     msg = f"""
-💎 <b>WELCOME TO PREMIUM BOT</b> 💎
+💎 <b>WELCOME TO PREMIUM BOT</b>
 
-👤 <b>Name:</b> {name}
-🆔 <b>User ID:</b> <code>{user_id}</code>
+👤 {name}
+🆔 <code>{user_id}</code>
 
-💰 <b>Credits:</b> {user[1]}
+💰 Credits: {user[1]}
+📊 Daily Left: {5-user[2]}
 
-📅 {now.strftime("%Y-%m-%d")}
+📅 {now.strftime("%d-%m-%Y")}
 ⏰ {now.strftime("%I:%M %p")}
 """
 
@@ -93,6 +98,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=keyboard)
+
+# ================= FIX START =================
+async def start_fix(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text.lower().startswith("/start"):
+        await start(update, context)
 
 # ================= LIMIT =================
 def can_search(user):
@@ -119,8 +129,7 @@ def can_search(user):
 # ================= API =================
 def fetch_data(url):
     try:
-        res = requests.get(url, timeout=10)
-        return res.json()
+        return requests.get(url, timeout=10).json()
     except:
         return None
 
@@ -135,7 +144,7 @@ async def send_result(update, query):
     result = data.get("result")
 
     if not result:
-        await update.message.reply_text("❌ Data not found")
+        await update.message.reply_text("❌ Data not found\n🆔 UID Generated: " + str(query))
         return
 
     try:
@@ -150,55 +159,60 @@ async def send_result(update, query):
 🌍 Country: {result.get('country')}
 📞 Number: <code>{result.get('number')}</code>
 🆔 User ID: <code>{result.get('tg_id')}</code>
-
-👨‍💻 Developer: @T4HKR
 """
     await update.message.reply_text(msg, parse_mode="HTML")
 
-# ================= GROUP /CHECK =================
-async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if update.effective_chat.type == "private":
-        return
-
-    if update.message.reply_to_message:
-        query = str(update.message.reply_to_message.from_user.id)
-
-    elif context.args:
-        query = context.args[0]
-
-    else:
-        return
-
-    await send_result(update, query)
-
 # ================= HANDLE =================
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
-    # GROUP SILENT
     if update.effective_chat.type != "private":
         return
 
     if not await check_join(user_id, context.bot):
-        await update.message.reply_text("❌ Join all channels first", reply_markup=join_buttons())
+        await update.message.reply_text("❌ Join channels first", reply_markup=join_buttons())
         return
 
     add_user(user_id)
     user = get_user(user_id)
 
-    # RESET lookup
-    if text in ["💰 My Credits", "🎁 Refer & Earn", "❓ Help", "👥 Total Users", "💰 Add Credits", "📢 Broadcast"]:
-        context.user_data["lookup"] = False
+    # ================= USER =================
+    if text == "💰 My Credits":
+        await update.message.reply_text(f"💰 {user[1]} credits\n📊 Left: {5-user[2]}")
+        return
 
-    # ADMIN
+    if text == "📊 Stats":
+        await update.message.reply_text(f"📊 Used Today: {user[2]}/5")
+        return
+
+    if text == "🎁 Refer & Earn":
+        await update.message.reply_text(f"https://t.me/{BOT_USERNAME}?start={user_id}")
+        return
+
+    if text == "❓ Help":
+        await update.message.reply_text("Send @username or ID")
+        return
+
+    if text == "🚀 Lookup Now":
+        context.user_data["lookup"] = True
+        await update.message.reply_text("Send @username or ID")
+        return
+
+    # ================= LOOKUP =================
+    if text.startswith("@") or text.isdigit():
+        if not can_search(user):
+            await update.message.reply_text("❌ Limit Over")
+            return
+        await send_result(update, text)
+        return
+
+    # ================= ADMIN =================
     if str(user_id) == str(ADMIN_ID):
 
         if text == "👥 Total Users":
             cursor.execute("SELECT COUNT(*) FROM users")
-            await update.message.reply_text(f"👥 Users: {cursor.fetchone()[0]}")
+            await update.message.reply_text(f"👥 {cursor.fetchone()[0]}")
             return
 
         if text == "💰 Add Credits":
@@ -211,7 +225,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 uid, amt = text.split()
                 cursor.execute("UPDATE users SET credits=credits+? WHERE user_id=?", (int(amt), int(uid)))
                 conn.commit()
-                await update.message.reply_text("✅ Added")
+                await update.message.reply_text("✅ Done")
             except:
                 await update.message.reply_text("❌ Error")
             context.user_data["add"] = False
@@ -228,50 +242,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_message(u[0], text)
                 except:
                     pass
-            await update.message.reply_text("✅ Done")
+            await update.message.reply_text("✅ Broadcast Done")
             context.user_data["bc"] = False
             return
-
-    # USER
-    if text == "💰 My Credits":
-        await update.message.reply_text(f"💰 Credits: {user[1]}\n📊 Daily Left: {5-user[2]}")
-        return
-
-    if text == "🎁 Refer & Earn":
-        await update.message.reply_text(f"https://t.me/{BOT_USERNAME}?start={user_id}")
-        return
-
-    if text == "❓ Help":
-        await update.message.reply_text("Send @username or userID")
-        return
-
-    if text == "🚀 Lookup Now":
-        context.user_data["lookup"] = True
-        await update.message.reply_text("Send @username or userID")
-        return
-
-    if context.user_data.get("lookup") and (text.startswith("@") or text.isdigit()):
-        context.user_data["lookup"] = False
-
-        if not can_search(user):
-            await update.message.reply_text("❌ Limit Over")
-            return
-
-        await send_result(update, text)
-        return
-
-    if text.startswith("@") or text.isdigit():
-        if not can_search(user):
-            await update.message.reply_text("❌ Limit Over")
-            return
-        await send_result(update, text)
-        return
 
 # ================= RUN =================
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("check", check_user))
+app.add_handler(MessageHandler(filters.COMMAND, start_fix))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+print("🚀 Bot running...")
 
 app.run_polling()
