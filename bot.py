@@ -1,6 +1,5 @@
 import requests
 import json
-import time
 from datetime import datetime, date
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
@@ -33,8 +32,8 @@ async def check_join(user_id, bot):
 
 def join_buttons():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📢 Join Channel 1", url="https://t.me/SUMITNETW0RK")],
-        [InlineKeyboardButton("📢 Join Channel 2", url="https://t.me/lokixnetwork")]
+        [InlineKeyboardButton("📢 Channel 1", url="https://t.me/SUMITNETW0RK")],
+        [InlineKeyboardButton("📢 Channel 2", url="https://t.me/lokixnetwork")]
     ])
 
 # ================= START =================
@@ -149,10 +148,7 @@ async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query = context.args[0]
 
         else:
-            await update.message.reply_text(
-                "❌ Use:\nReply + /check\nor\n/check @username\nor\n/check userID"
-            )
-            return
+            return  # 🔥 group me random msg ignore
 
         await send_result(update, query)
         return
@@ -177,6 +173,10 @@ async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= HANDLE =================
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    # 🔥 GROUP SILENT (IMPORTANT)
+    if update.effective_chat.type != "private":
+        return
 
     user_id = update.effective_user.id
     text = update.message.text
@@ -224,8 +224,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await send_result(update, text)
         return
-
-    await update.message.reply_text("❌ Invalid")
 
 # ================= RUN =================
 app = ApplicationBuilder().token(BOT_TOKEN).build()
