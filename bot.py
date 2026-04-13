@@ -159,13 +159,31 @@ async def send_result(update, query):
 
     await update.message.reply_text(msg, parse_mode="HTML")
 
+# ================= GROUP COMMAND =================
+async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if update.effective_chat.type == "private":
+        return
+
+    if update.message.reply_to_message:
+        query = str(update.message.reply_to_message.from_user.id)
+
+    elif context.args:
+        query = context.args[0]
+
+    else:
+        await update.message.reply_text("❌ Use: /check @username or reply")
+        return
+
+    await send_result(update, query)
+
 # ================= HANDLE =================
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.effective_user.id
     text = update.message.text
-    chat_type = update.effective_chat.type
 
+    # JOIN CHECK
     if not await check_join(user_id, context.bot):
         await update.message.reply_text("❌ Join all channels first", reply_markup=join_buttons())
         return
@@ -173,7 +191,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_user(user_id)
     user = get_user(user_id)
 
-    # ADMIN FEATURES
+    # GROUP IGNORE
+    if update.effective_chat.type != "private":
+        return
+
+    # ADMIN
     if str(user_id) == str(ADMIN_ID):
 
         if text == "👥 Total Users":
@@ -212,11 +234,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["bc"] = False
             return
 
-    # GROUP CONTROL
-    if chat_type != "private":
-        return
-
-    # USER FEATURES
+    # USER BUTTONS
     if text == "💰 My Credits":
         await update.message.reply_text(f"💰 Credits: {user[1]}\n📊 Daily Left: {5-user[2]}")
         return
@@ -255,6 +273,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("check", check_user))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 app.run_polling()
