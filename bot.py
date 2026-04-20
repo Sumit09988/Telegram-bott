@@ -117,6 +117,22 @@ def fetch_data(url):
             time.sleep(1)
     return None
 
+# 🔥 STRONG PARSER
+def find_key(data, keys):
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k.lower() in keys:
+                return v
+            res = find_key(v, keys)
+            if res:
+                return res
+    elif isinstance(data, list):
+        for item in data:
+            res = find_key(item, keys)
+            if res:
+                return res
+    return None
+
 async def send_result(update, query):
     url = f"http://eris-osint.vercel.app/info?key={API_KEY}&id={query}"
     data = fetch_data(url)
@@ -125,33 +141,29 @@ async def send_result(update, query):
         await update.message.reply_text("⚠️ API Error")
         return
 
-    result = data.get("result") if "result" in data else data
+    result = data.get("result") or data.get("data") or data
 
-    try:
-        result = json.loads(result) if isinstance(result, str) else result
-    except:
-        pass
+    if isinstance(result, str):
+        try:
+            result = json.loads(result)
+        except:
+            pass
 
-    if not result:
-        await update.message.reply_text(f"❌ DATA NOT FOUND\nID: {query}")
-        return
+    number = find_key(result, ["number", "phone", "mobile", "contact"])
+    country = find_key(result, ["country", "location"])
+    tg_id = find_key(result, ["tg_id", "id", "user_id"])
 
-    country = result.get("country") or result.get("Country") or result.get("location") or "N/A"
-    number = result.get("number") or result.get("phone") or result.get("mobile") or result.get("contact") or "N/A"
-    tg_id = result.get("tg_id") or result.get("id") or result.get("user_id") or result.get("telegram_id") or "N/A"
-    username = result.get("username") or result.get("user") or query
-
-    if number == "N/A" and tg_id == "N/A":
+    if not number:
         await update.message.reply_text(f"❌ DATA NOT FOUND\nID: {query}")
         return
 
     msg = f"""
 🔍 <b>RESULT FOUND</b>
 
-👤 Username: {username}
-🌍 Country: {country}
+👤 Username: {query}
+🌍 Country: {country or "N/A"}
 📞 Number: <code>{number}</code>
-🆔 User ID: <code>{tg_id}</code>
+🆔 User ID: <code>{tg_id or "N/A"}</code>
 """
 
     await update.message.reply_text(msg, parse_mode="HTML")
