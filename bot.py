@@ -121,12 +121,7 @@ def fetch_data(url):
             time.sleep(1)
     return None
 
-# 🔥 number extract fix
-def extract_number(value):
-    if isinstance(value, dict):
-        return value.get("number")
-    return value
-
+# 🔥 NEW STRUCTURE SUPPORT
 async def send_result(update, query):
     url = f"http://eris-osint.vercel.app/info?key={API_KEY}&id={query}"
     data = fetch_data(url)
@@ -135,23 +130,14 @@ async def send_result(update, query):
         await update.message.reply_text("⚠️ API Error")
         return
 
-    result_raw = data.get("result")
+    main = data.get("data", {})
 
-    if not result_raw:
-        await update.message.reply_text(f"❌ DATA NOT FOUND\nID: {query}")
-        return
+    number_data = main.get("number", {})
+    telegram_data = main.get("telegram", {})
 
-    try:
-        result = json.loads(result_raw) if isinstance(result_raw, str) else result_raw
-    except:
-        await update.message.reply_text("⚠️ Parse Error")
-        return
-
-    raw_number = result.get("number")
-    number = extract_number(raw_number)
-
-    country = result.get("country") or "N/A"
-    tg_id = result.get("tg_id") or result.get("id") or result.get("user_id") or "N/A"
+    number = number_data.get("number")
+    country = number_data.get("country")
+    tg_id = telegram_data.get("id")
 
     if not number:
         await update.message.reply_text(f"❌ DATA NOT FOUND\nID: {query}")
@@ -161,9 +147,9 @@ async def send_result(update, query):
 🔍 <b>RESULT FOUND</b>
 
 ╔══════════════════╗
-🌍 Country: {country}
+🌍 Country: {country or "N/A"}
 📞 Number: <code>{number}</code>
-🆔 User ID: <b>{tg_id}</b>
+🆔 User ID: <b>{tg_id or "N/A"}</b>
 ╚══════════════════╝
 
 ━━━━━━━━━━━━━━━━━━
@@ -249,11 +235,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["bc"] = False
             return
 
-    # GROUP
     if chat_type != "private":
         return
 
-    # USER BUTTONS
     if text == "💰 My Credits":
         await update.message.reply_text(f"Credits: {user[1]}\nDaily Left: {5-user[2]}")
         return
@@ -266,7 +250,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Send @username or userID")
         return
 
-    # SEARCH
     if text.startswith("@") or text.isdigit():
         if not can_search(user):
             await update.message.reply_text("❌ Limit over")
