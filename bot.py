@@ -64,7 +64,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 💎 <b>WELCOME TO PREMIUM BOT</b>
 
 👤 {name}
-🆔 <code>{user_id}</code>
+🆔 <b>{user_id}</b>
 
 💰 Credits: {user[1]}
 📊 Daily Left: {5-user[2]}
@@ -79,11 +79,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await update.message.reply_text(msg, parse_mode="HTML", reply_markup=keyboard)
-
-# ================= FIX START =================
-async def start_fix(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text.lower().startswith("/start"):
-        await start(update, context)
 
 # ================= LIMIT =================
 def can_search(user):
@@ -117,21 +112,11 @@ def fetch_data(url):
             time.sleep(1)
     return None
 
-# 🔥 STRONG PARSER
-def find_key(data, keys):
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if k.lower() in keys:
-                return v
-            res = find_key(v, keys)
-            if res:
-                return res
-    elif isinstance(data, list):
-        for item in data:
-            res = find_key(item, keys)
-            if res:
-                return res
-    return None
+# 🔥 number extract fix
+def extract_number(value):
+    if isinstance(value, dict):
+        return value.get("number")
+    return value
 
 async def send_result(update, query):
     url = f"http://eris-osint.vercel.app/info?key={API_KEY}&id={query}"
@@ -149,9 +134,10 @@ async def send_result(update, query):
         except:
             pass
 
-    number = find_key(result, ["number", "phone", "mobile", "contact"])
-    country = find_key(result, ["country", "location"])
-    tg_id = find_key(result, ["tg_id", "id", "user_id"])
+    # 🔥 direct extraction
+    number = extract_number(result.get("number") or result.get("phone") or result.get("mobile"))
+    country = result.get("country") or result.get("Country")
+    tg_id = result.get("tg_id") or result.get("id") or result.get("user_id")
 
     if not number:
         await update.message.reply_text(f"❌ DATA NOT FOUND\nID: {query}")
@@ -163,7 +149,7 @@ async def send_result(update, query):
 👤 Username: {query}
 🌍 Country: {country or "N/A"}
 📞 Number: <code>{number}</code>
-🆔 User ID: <code>{tg_id or "N/A"}</code>
+🆔 User ID: <b>{tg_id or "N/A"}</b>
 """
 
     await update.message.reply_text(msg, parse_mode="HTML")
@@ -226,7 +212,6 @@ app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("check", check_user))
-app.add_handler(MessageHandler(filters.COMMAND, start_fix))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 print("🚀 Bot running...")
