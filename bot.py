@@ -124,22 +124,15 @@ def fetch_data(url):
 # 🔥 NEW STRUCTURE SUPPORT
 async def send_result(update, query):
     url = f"https://tg2info.vercel.app/info?key={API_KEY}&id={query}"
+async def send_result(update, query):
+    url = f"https://tg2info.vercel.app/info?key={API_KEY}&id={query}"
     data = fetch_data(url)
 
     if not data:
         await update.message.reply_text("⚠️ API Error")
         return
 
-    main = data.get("data", {})
-
-    number_data = main.get("number", {})
-    telegram_data = main.get("telegram", {})
-
-    number = number_data.get("number")
-    country = number_data.get("country")
-    tg_id = telegram_data.get("id")
-
-    if not number:
+    if not data.get("success"):
         await update.message.reply_text(f"❌ DATA NOT FOUND\nID: {query}")
         return
 
@@ -147,9 +140,9 @@ async def send_result(update, query):
 🔍 <b>RESULT FOUND</b>
 
 ╔══════════════════╗
-🌍 Country: {country or "N/A"}
-📞 Number: <code>{number}</code>
-🆔 User ID: <b>{tg_id or "N/A"}</b>
+🌍 Country: {data.get('country', 'N/A')}
+📞 Number: <code>{data.get('phone_number', 'N/A')}</code>
+🆔 User ID: <code>{data.get('telegram_id', 'N/A')}</code>
 ╚══════════════════╝
 
 ━━━━━━━━━━━━━━━━━━
@@ -157,7 +150,6 @@ async def send_result(update, query):
 """
 
     await update.message.reply_text(msg, parse_mode="HTML")
-
 # ================= /CHECK =================
 async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(update.effective_user.id)
