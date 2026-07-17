@@ -2,8 +2,15 @@ import requests
 import json
 import time
 from datetime import datetime, date
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+    ContextTypes,
+)
 from config import *
 from database import *
 
@@ -32,24 +39,57 @@ def user_exists(user_id):
     cursor.execute("SELECT 1 FROM users WHERE user_id=?", (user_id,))
     return cursor.fetchone() is not None
 
+# ================= JOIN PROMPT =================
+async def require_join(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> bool:
+    """If user not in channel, send join prompt and return False. Otherwise return True."""
+    if await check_join(user_id, context.bot):
+        return True
+
+    channel_link = f"https://t.me/{CHANNEL.lstrip('@')}" if CHANNEL.startswith('@') else CHANNEL
+    keyboard = [
+        [InlineKeyboardButton("📢 Join Channel", url=channel_link)],
+        [InlineKeyboardButton("✅ I've Joined", callback_data="check_join")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    msg = (
+        "❗ You must join our channel to use this bot.\n"
+        "Click the button below to join, then click 'I've Joined'."
+    )
+
+    # Try to reply, fallback to send if reply fails (e.g., in groups without reply)
+    try:
+        await update.message.reply_text(msg, reply_markup=reply_markup)
+    except AttributeError:
+        # If update doesn't have message (e.g., callback), we handle separately
+        pass
+    return False
+
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     name = update.effective_user.first_name
 
-    if not await check_join(user_id, context.bot):
-        await update.message.reply_text(f"❌ Join channel first: {CHANNEL}")
-        return
-
-    is_new = not user_exists(user_id)
-
+    # Store referral if any
     ref = None
     if context.args:
         try:
             ref = int(context.args[0])
         except:
             pass
+    context.user_data["pending_ref"] = ref
 
+    if not await check_join(user_id, context.bot):
+        await require_join(update, context, user_id)
+        return
+
+    # User is joined – process as normal
+    await show_main_menu(update, context, user_id, name, ref)
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, name: str, ref: int = None):
+    """Display the main menu and handle new user / referral."""
+    is_new = not user_exists(user_id)
+
+    # Add user (handles referral credit if new)
     add_user(user_id, ref)
 
     if is_new and ref and ref != user_id:
@@ -87,7 +127,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resize_keyboard=True
     )
 
-    await update.message.reply_text(msg, parse_mode="HTML", reply_markup=keyboard)
+    if update.callback_query:
+        await update.callback_query.edit_message_text(msg, parse_mode="HTML", reply_markup=keyboard)
+    else:
+        await update.message.reply_text(msg, parse_mode="HTML", reply_markup=keyboard)
+
+# ================= CALLBACK: JOIN VERIFICATION =================
+async def handle_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    name = query.from_user.first_name
+
+    if await check_join(user_id, context.bot):
+        # User joined – now show main menu and process pending referral
+        ref = context.user_data.get("pending_ref")
+        await show_main_menu(update, context, user_id, name, ref)
+        context.user_data.pop("pending_ref", None)
+    else:
+        channel_link = f"https://t.me/{CHANNEL.lstrip('@')}" if CHANNEL.startswith('@') else CHANNEL
+        keyboard = [
+            [InlineKeyboardButton("📢 Join Channel", url=channel_link)],
+            [InlineKeyboardButton("✅ I've Joined", callback_data="check_join")]
+        ]
+        await query.edit_message_text(
+            "❌ You haven't joined yet. Please join and click 'I've Joined' again.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 # ================= LIMIT =================
 def can_search(user):
@@ -121,15 +187,12 @@ def fetch_data(url):
             time.sleep(1)
     return None
 
-# 🔥 NEW STRUCTURE SUPPORT
-async def send_result(update, query):
-    url = f"https://tg2info.vercel.app/info?key={API_KEY}&id={query}"
-async def send_result(update, query):
+async def send_result(update: Update, query: str):
     url = f"https://tg2info.vercel.app/info?key={API_KEY}&id={query}"
     data = fetch_data(url)
 
     if not data:
-        await update.message.reply_text("⚠️ API Error")
+        await update.message.reply_text("⚠️ API Error – please try again later.")
         return
 
     if not data.get("success"):
@@ -150,9 +213,17 @@ async def send_result(update, query):
 """
 
     await update.message.reply_text(msg, parse_mode="HTML")
+
 # ================= /CHECK =================
 async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user(update.effective_user.id)
+    user_id = update.effective_user.id
+
+    # Force join check
+    if not await check_join(user_id, context.bot):
+        await require_join(update, context, user_id)
+        return
+
+    user = get_user(user_id)
 
     if not can_search(user):
         await update.message.reply_text("❌ Limit over")
@@ -170,13 +241,13 @@ async def check_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= HANDLE =================
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     user_id = update.effective_user.id
     text = update.message.text
     chat_type = update.effective_chat.type
 
+    # Force join for all interactions
     if not await check_join(user_id, context.bot):
-        await update.message.reply_text("❌ Join channel first")
+        await require_join(update, context, user_id)
         return
 
     add_user(user_id)
@@ -190,7 +261,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ADMIN
     if str(user_id) == str(ADMIN_ID):
-
         if text == "👥 Total Users":
             cursor.execute("SELECT COUNT(*) FROM users")
             await update.message.reply_text(f"👥 Users: {cursor.fetchone()[0]}")
@@ -231,7 +301,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if text == "💰 My Credits":
-        await update.message.reply_text(f"Credits: {user[1]}\nDaily Left: {5-user[2]}")
+        await update.message.reply_text(f"Credits: {user[1]}\nDaily Left: {5 - user[2]}")
         return
 
     if text == "🎁 Refer & Earn":
@@ -263,6 +333,7 @@ app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("check", check_user))
+app.add_handler(CallbackQueryHandler(handle_join_callback, pattern="check_join"))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 print("🚀 Bot running...")
