@@ -123,7 +123,7 @@ def fetch_data(url):
 
 # 🔥 NEW STRUCTURE SUPPORT
 async def send_result(update, query):
-    url = f"http://eris-osint.vercel.app/info?key={API_KEY}&id={query}"
+    url = f"https://tg2info.vercel.app/info?key=sumit996&id=thepaglu}"
     data = fetch_data(url)
 
     if not data:
